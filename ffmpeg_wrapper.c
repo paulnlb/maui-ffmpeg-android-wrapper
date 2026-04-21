@@ -100,7 +100,7 @@ int extract_audio(int         start_time_sec,
     if ((ret = avcodec_open2(dec_ctx, decoder, NULL)) < 0)
         goto cleanup;
 
-    LOGI("Step 1 completed.");
+    LOGD("Step 1 completed.");
 
     /* ============================================================== */
     /*  2. Seek to start time (input-level seek, like -ss before -i)  */
@@ -120,7 +120,7 @@ int extract_audio(int         start_time_sec,
     int64_t end_pts   = av_rescale_q((int64_t)end_time_sec   * AV_TIME_BASE,
                                      AV_TIME_BASE_Q, in_stream->time_base);
 
-    LOGI("Step 2 completed. Seek to start time (input-level seek, like -ss before -i)");
+    LOGD("Step 2 completed. Seek to start time (input-level seek, like -ss before -i)");
 
     /* ============================================================== */
     /*  3. Set up output format, encoder, stream                      */
@@ -173,7 +173,7 @@ int extract_audio(int         start_time_sec,
         goto cleanup;
     out_stream->time_base = enc_ctx->time_base;
 
-    LOGI("Step 3 completed. Set up output format, encoder, stream");
+    LOGD("Step 3 completed. Set up output format, encoder, stream");
 
     /* ============================================================== */
     /*  4. Open output I/O (handles file paths AND unix:// sockets)   */
@@ -187,7 +187,7 @@ int extract_audio(int         start_time_sec,
         goto cleanup;
     header_written = 1;
 
-    LOGI("Step 4 completed. Open output I/O (handles file paths AND unix:// sockets)");
+    LOGD("Step 4 completed. Open output I/O (handles file paths AND unix:// sockets)");
 
     /* ============================================================== */
     /*  5. Set up resampler  (any input fmt/rate/layout → mono S16)   */
@@ -201,7 +201,7 @@ int extract_audio(int         start_time_sec,
     if ((ret = swr_init(swr_ctx)) < 0)
         goto cleanup;
 
-    LOGI("Step 5 completed. Set up resampler  (any input fmt/rate/layout → mono S16)");
+    LOGD("Step 5 completed. Set up resampler  (any input fmt/rate/layout → mono S16)");
 
     /* ============================================================== */
     /*  6. Allocate working packets / frames                          */
@@ -214,7 +214,7 @@ int extract_audio(int         start_time_sec,
         ret = AVERROR(ENOMEM); goto cleanup;
     }
 
-    LOGI("Step 6 completed. Allocate working packets / frames");
+    LOGD("Step 6 completed. Allocate working packets / frames");
 
     /* ============================================================== */
     /*  7. Main decode → resample → encode loop                       */
@@ -317,7 +317,7 @@ int extract_audio(int         start_time_sec,
             goto cleanup;
     }
 
-    LOGI("Step 7 completed. Main decode → resample → encode loop");
+    LOGD("Step 7 completed. Main decode → resample → encode loop");
 
     /* ============================================================== */
     /*  8. Flush resampler (internal buffered samples)                */
@@ -341,7 +341,7 @@ int extract_audio(int         start_time_sec,
             goto cleanup;
     }
 
-    LOGI("Step 8 completed. Flush resampler (internal buffered samples)");
+    LOGD("Step 8 completed. Flush resampler (internal buffered samples)");
 
     /* ============================================================== */
     /*  9. Flush encoder                                              */
@@ -350,14 +350,14 @@ int extract_audio(int         start_time_sec,
                                 out_stream, out_pkt, NULL)) < 0)
         goto cleanup;
 
-    LOGI("Step 9 completed. Flush encoder");
+    LOGD("Step 9 completed. Flush encoder");
 
     /* ============================================================== */
     /* 10. Write trailer (updates WAV header sizes, etc.)             */
     /* ============================================================== */
     ret = av_write_trailer(ofmt_ctx);
 
-    LOGI("Step 10 completed. Write trailer (updates WAV header sizes, etc.)");
+    LOGD("Step 10 completed. Write trailer (updates WAV header sizes, etc.)");
 
     /* ============================================================== */
     /*  Cleanup                                                       */
