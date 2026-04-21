@@ -1,41 +1,26 @@
-Integrating FFmpeg into a .NET MAUI Android app is conceptually the **same pipeline as the calculator**, just with more moving pieces.
-
-The architecture stays identical:
+Integrating FFmpeg into a .NET MAUI Android app looks like this:
 
 ```
 MAUI C#
    ↓  (P/Invoke)
-Your wrapper .so
+Your custom wrapper .so
    ↓
 FFmpeg libraries (.so)
 ```
 
 You **do not call FFmpeg directly from C#**. You write a **small C wrapper** that calls FFmpeg internally.
 
-Think of it as replacing the calculator:
-
-```
-add(a,b)
-```
-
-with
-
-```
-extract_audio(input, output)
-```
-
 ---
 
 # 1. What you actually need
 
-FFmpeg is not one library. It is several:
+FFmpeg is not one library - it is several. These are some (but not all) of them:
 
 ```
 libavformat
 libavcodec
 libavutil
 libswresample
-libswscale
 ```
 
 Android apps load them as `.so` files.
@@ -47,7 +32,6 @@ libavcodec.so
 libavformat.so
 libavutil.so
 libswresample.so
-libswscale.so
 ```
 
 Your wrapper will become:
@@ -68,6 +52,7 @@ Most common ABIs:
 arm64-v8a
 armeabi-v7a
 x86_64
+x86
 ```
 
 After building or downloading, you should have something like:
@@ -78,28 +63,27 @@ ffmpeg-android/
  │   ├── libavcodec.so
  │   ├── libavformat.so
  │   ├── libavutil.so
- │   ├── libswresample.so
- │   └── libswscale.so
+ │   └── libswresample.so
 ```
 
 You can build ffmpeg libraries from source using the https://github.com/Javernaut/ffmpeg-android-maker script.
 
-Usage:
+Example usage of ffmpeg-android-maker on Fedora linux:
 
 ```sh
 git clone https://github.com/Javernaut/ffmpeg-android-maker.git
 
-export ANDROID_SDK_HOME="/var/home/pavlokde/distrobox-home/Android/Sdk/"
-export ANDROID_NDK_HOME="/var/home/pavlokde/distrobox-home/Android/Sdk/ndk/30.0.14904198/" # or whatever version you installed
+export ANDROID_SDK_HOME="/var/home/username/Android/Sdk/"
+export ANDROID_NDK_HOME="/var/home/username/Android/Sdk/ndk/30.0.14904198/" # or whatever version you installed
 
-sudo dnf install nasm # the script required this dependency
+sudo dnf install nasm # the script required this dependency in my case
 
 cd ffmpeg-android-maker
 ./ffmpeg-android-maker.sh
 ```
 
-The produced libs now are in the `output/lib/` folder.
-Copy `lib` and `include` folders to your working directory for the next step.
+The produced libs will be stored in the `output` directory.
+Copy `lib` and `include` directories from it to your working directory for the next step.
 
 ---
 
@@ -111,7 +95,7 @@ Create:
 ffmpeg_wrapper.c
 ```
 
-Implement (or vibe code) one or many wrapper functions for your needs. An example implementation for extracting, transcoding and resampling an audio piece from a video can be found in the repo.
+Implement (or vibe code as I did lol) one or many wrapper functions for your needs. An example implementation for extracting, transcoding and resampling an audio piece from a video can be found in the repo.
 
 Important idea: Your wrapper exposes **you custom C functions** while hiding the FFmpeg API under the hood.
 
@@ -146,6 +130,27 @@ native/
          ├── libavformat.so
          ├── libavutil.so
          └── libswresample.so
+ └── include/
+     └── arm64-v8a/
+         ├── libavcodec
+         ├── libavformat
+         ├── libavutil
+         └── libswresample
+     └── armeabi-v7a/
+         ├── libavcodec
+         ├── libavformat
+         ├── libavutil
+         └── libswresample
+     └── x86/
+         ├── libavcodec
+         ├── libavformat
+         ├── libavutil
+         └── libswresample
+     └── x86_64/
+         ├── libavcodec.so
+         ├── libavformat.so
+         ├── libavutil.so
+         └── libswresample.so
 ```
 
 CMake:
@@ -154,6 +159,8 @@ CMake:
 cmake_minimum_required(VERSION 3.10)
 
 project(ffmpegwrapper)
+
+include_directories(${CMAKE_SOURCE_DIR}/include/${ANDROID_ABI})
 
 add_library(ffmpegwrapper SHARED ffmpeg_wrapper.c)
 
@@ -179,6 +186,7 @@ target_link_libraries(
     avformat
     avutil
     swresample
+    log
 )
 ```
 
@@ -196,9 +204,6 @@ and link against FFmpeg libraries
 ```sh
 # install CMake and compiler for Fedora
 sudo dnf install cmake gcc-c++
-
-# install libraries headers
-sudo dnf install libavformat-free-devel
 ```
 
 Using Android NDK:
@@ -239,11 +244,34 @@ libswresample.so
 libffmpegwrapper.so
 ```
 
-Android loads them automatically.
+Also, register the libs in your .csproj
+
+```xml
+<ItemGroup>
+    <AndroidNativeLibrary Include="Platforms\Android\lib\arm64-v8a\libffmpegwrapper.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\lib\arm64-v8a\libavcodec.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\lib\arm64-v8a\libavformat.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\lib\arm64-v8a\libavutil.so" />
+    <AndroidNativeLibrary Include="Platforms\Android\lib\arm64-v8a\libswresample.so" />
+</ItemGroup>
+```
+
+Android loads dependencies automatically.
+
+```
+libffmpegwrapper.so
+    ↓
+libavcodec.so
+libavformat.so
+libavutil.so
+...
+```
+
+Everything must be in the **same ABI folder**.
 
 ---
 
-# 7. Create the C# binding
+# 7. Create a C# binding
 
 Create:
 
@@ -266,6 +294,8 @@ public static partial class FfmpegNativeWrapper
 }
 ```
 
+❗❗❗**Note**: for Android, it's critical to set string marshalling encoding to **Utf8**.
+
 ---
 
 # 8. Use it from MAUI
@@ -274,7 +304,7 @@ public static partial class FfmpegNativeWrapper
 await Task.Run(() =>
         {
 
-            FfmpegNativeWrapper.extract_audio(
+            var exitCode = FfmpegNativeWrapper.extract_audio(
                 (int)startTime.TotalSeconds,
                 (int)endTime.TotalSeconds,
                 sourcePath,
@@ -284,42 +314,3 @@ await Task.Run(() =>
             );
         });
 ```
-
----
-
-# 9. Runtime loading order
-
-Android loads dependencies automatically.
-
-```
-libffmpegwrapper.so
-    ↓
-libavcodec.so
-libavformat.so
-libavutil.so
-```
-
-Everything must be in the **same ABI folder**.
-
----
-
-# 10. The real-world structure
-
-Large apps usually look like this:
-
-```
-MAUI
- ├── FfmpegNative.cs
- └── Platforms
-     └── Android
-         └── lib
-             ├── arm64-v8a
-             │   ├── libffmpegwrapper.so
-             │   ├── libavcodec.so
-             │   ├── libavformat.so
-             │   └── ...
-             └── x86_64
-                 └── same libraries
-```
-
----
